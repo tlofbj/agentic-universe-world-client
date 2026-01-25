@@ -1,4 +1,4 @@
-const SOCKET_URL = 'ws://agentic-universe-server.onrender.com/ws'
+const SOCKET_URL = 'wss://agentic-universe-server.onrender.com/ws'
 const BACKEND_URL = 'https://agentic-universe-server.onrender.com'
 
 let streamingController
