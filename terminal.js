@@ -1,5 +1,5 @@
-const SOCKET_URL = 'ws://localhost:4545/ws'
-const BACKEND_URL = 'http://localhost:4545'
+const SOCKET_URL = 'ws://agentic-universe-server.onrender.com/ws'
+const BACKEND_URL = 'https://agentic-universe-server.onrender.com'
 
 let streamingController
 let messageQueue = []
