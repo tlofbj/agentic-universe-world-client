@@ -1,14 +1,14 @@
 const SOCKET_URL = 'wss://agentic-universe-server.onrender.com/ws'
-const BACKEND_URL = 'https://agentic-universe-server.onrender.com'
 
 let streamingController
 let messageQueue = []
 let isProcessingQueue = false
+let worldData = null // Store world data received from parent
 
 // TERMINAL
 let term = $('#terminal').terminal(interpreter, {
 	name: 'Reason OS',
-	greetings: 'Loading...',
+	greetings: 'Loading world data...',
 	prompt: '\n>',
 	clear: false,
 	convertLinks: false,
@@ -17,6 +17,22 @@ let term = $('#terminal').terminal(interpreter, {
 
 streamingController = createStreamingController(term, setupGlossaryTooltips)
 
+// Listen for messages from parent window (iframe communication)
+window.addEventListener('message', (event) => {
+	// Optionally validate event.origin for security
+	// if (event.origin !== 'https://your-platform.com') return
+
+	if (event.data.type === 'INIT_GAME') {
+		console.log('[INFO] Received INIT_GAME from parent')
+		worldData = event.data.world
+		
+		// If socket is already connected, start the game
+		if (socket && socket.readyState === WebSocket.OPEN) {
+			startWithWorld()
+		}
+		// Otherwise, the game will start when socket connects
+	}
+})
 
 // INTERPRETER
 function interpreter(command, term) {
@@ -45,14 +61,23 @@ function interpreter(command, term) {
 	term.echo('')
 }
 
-function start() {
+function startWithWorld() {
+	if (!worldData) {
+		console.log('[INFO] No world data available, waiting for INIT_GAME from parent')
+		return
+	}
+	
 	if (socket && socket.readyState === WebSocket.OPEN) {
+		console.log('[INFO] Starting game with world data')
 		socket.send(JSON.stringify({
 			type: 'start',
-			message: { state: localStorage.getItem('reason-os-game-state') }
+			message: { 
+				state: localStorage.getItem('reason-os-game-state'),
+				world: worldData
+			}
 		}))
 	} else {
-		console.log('[INFO] Socket not ready, will start when connected');
+		console.log('[INFO] Socket not ready, will start when connected')
 	}
 }
 
@@ -73,7 +98,13 @@ function connectSocket() {
 		if (term) {
 			term.clear();
 		}
-		start();
+		// Only start if we already have world data from parent
+		if (worldData) {
+			startWithWorld();
+		} else {
+			console.log('[INFO] WebSocket ready, waiting for INIT_GAME from parent');
+			term.echo('Connected. Waiting for game data...');
+		}
 	};
 
 	socket.onclose = () => {
@@ -132,9 +163,10 @@ async function processMessageQueue() {
 			}
 
 			case 'room_image':
-				const imagePath = message?.image_path || message;
-				console.log(`[ROOM IMAGE]: ${imagePath}`);
-				updateRoomImage(imagePath);
+				// Support both old format (image_path) and new format (room_image_url)
+				const imageUrl = message?.room_image_url || message?.image_path || message;
+				console.log(`[ROOM IMAGE]: ${imageUrl}`);
+				updateRoomImage(imageUrl);
 				break;
 
 			case 'fade_out': {
@@ -294,27 +326,26 @@ function setupGlossaryTooltips() {
 }
 
 // ROOM IMAGE HANDLING
-function updateRoomImage(imagePath) {
+function updateRoomImage(imageUrl) {
 	const figureDiv = $('#figure');
 	
-	if (!imagePath) {
+	if (!imageUrl) {
 		figureDiv.html('');
 		console.log(`[INFO] Cleared room image`);
 		return;
 	}
 
-	// Fetch image from backend
-	const fullImageUrl = `${BACKEND_URL}/${imagePath}`;
+	// Use the URL directly - it's now a cloud URL from room_image_url
 	const existingContainer = figureDiv.find('.scene-container');
 	
 	if (existingContainer.length > 0) {
 		// Update existing image source to prevent layout shift/scrolling
-		existingContainer.find('.scene-image').attr('src', fullImageUrl);
-		console.log(`[INFO] Updated room image to: ${fullImageUrl}`);
+		existingContainer.find('.scene-image').attr('src', imageUrl);
+		console.log(`[INFO] Updated room image to: ${imageUrl}`);
 	} else {
 		figureDiv.html(`
 			<div class="scene-container">
-				<img src="${fullImageUrl}" alt="Room image" class="scene-image">
+				<img src="${imageUrl}" alt="Room image" class="scene-image">
 				<img src="images/frame.png" alt="Frame" class="frame-overlay">
 				<div class="scene-fade-overlay"></div>
 			</div>
@@ -332,6 +363,6 @@ function updateRoomImage(imagePath) {
 			console.log('[INFO] Frame not found, hiding figure');
 		});
 		
-		console.log(`[INFO] Created room image with: ${fullImageUrl}`);
+		console.log(`[INFO] Created room image with: ${imageUrl}`);
 	}
 }
