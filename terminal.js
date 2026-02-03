@@ -5,6 +5,42 @@ let messageQueue = []
 let isProcessingQueue = false
 let worldData = null // Store world data received from parent
 
+// Game log for parent iframe communication
+let gameLog = []
+let currentGameState = {
+	currentRoom: null,
+	currentChapter: null,
+	playerInventory: [],
+	playerFlags: []
+}
+
+// Add entry to game log
+function addToGameLog(type, data) {
+	gameLog.push({
+		timestamp: new Date().toISOString(),
+		type: type,
+		data: data
+	})
+}
+
+// Send game log to parent iframe
+function sendGameLogToParent() {
+	window.parent.postMessage({
+		type: 'GAME_LOG',
+		log: {
+			...currentGameState,
+			entries: gameLog
+		}
+	}, '*')
+}
+
+// Send END signal to parent iframe
+function sendEndToParent() {
+	window.parent.postMessage({
+		type: 'END'
+	}, '*')
+}
+
 // TERMINAL
 let term = $('#terminal').terminal(interpreter, {
 	name: 'Reason OS',
@@ -54,6 +90,9 @@ function interpreter(command, term) {
 		return
 	}
 	
+	// Log player input
+	addToGameLog('player_message', trimmed)
+	
 	socket.send(JSON.stringify({
 		type: 'player_input',
 		message: trimmed
@@ -63,7 +102,8 @@ function interpreter(command, term) {
 
 function startWithWorld() {
 	if (!worldData) {
-		console.log('[INFO] No world data available, waiting for INIT_GAME from parent')
+		console.log('[ERROR] No world data available')
+		showWorldDataError()
 		return
 	}
 	
@@ -78,6 +118,20 @@ function startWithWorld() {
 		}))
 	} else {
 		console.log('[INFO] Socket not ready, will start when connected')
+	}
+}
+
+function showWorldDataError() {
+	if (term) {
+		term.clear()
+		const errorHtml = `<span style="color: #ff4444; font-weight: bold;">ERROR: No world data provided.</span>`
+		term.echo(errorHtml, {raw: true})
+		term.echo('')
+		const detailHtml = `<span style="color: #ff6666;">This game client expects world data from a parent platform via INIT_GAME message.</span>`
+		term.echo(detailHtml, {raw: true})
+		term.echo('')
+		const instructionHtml = `<span style="color: #888888;">If you are the developer, ensure the parent iframe sends:<br>window.postMessage({ type: 'INIT_GAME', world: {...} }, '*')</span>`
+		term.echo(instructionHtml, {raw: true})
 	}
 }
 
@@ -104,6 +158,13 @@ function connectSocket() {
 		} else {
 			console.log('[INFO] WebSocket ready, waiting for INIT_GAME from parent');
 			term.echo('Connected. Waiting for game data...');
+			
+			// Show error after timeout if no world data received
+			setTimeout(() => {
+				if (!worldData) {
+					showWorldDataError();
+				}
+			}, 5000);
 		}
 	};
 
@@ -134,6 +195,28 @@ async function processMessageQueue() {
 
 			case 'error':
 				console.log(`[ERROR] ${message}`);
+				addToGameLog('console_output', `[ERROR] ${message}`);
+				break;
+			
+			case 'game_state':
+				// Update current game state from backend
+				console.log('[GAME STATE] Received state update');
+				if (data.state) {
+					currentGameState = {
+						currentRoom: data.state.current_room || currentGameState.currentRoom,
+						currentChapter: data.state.current_chapter || currentGameState.currentChapter,
+						playerInventory: data.state.inventory || currentGameState.playerInventory,
+						playerFlags: data.state.flags || currentGameState.playerFlags
+					};
+					sendGameLogToParent();
+				}
+				break;
+
+			case 'game_end':
+				console.log('[GAME END] Game has ended');
+				addToGameLog('console_output', '[GAME END]');
+				sendGameLogToParent();
+				sendEndToParent();
 				break;
 
 			case 'wait': {
@@ -145,6 +228,7 @@ async function processMessageQueue() {
 
 			case 'narrate': {
 				console.log(`[NARRATE] ${message}`);
+				addToGameLog('console_output', message);
 				// Only convert \n to <br> for plain text (not HTML content)
 				const isHtml = message.trim().startsWith('<');
 				const content = isHtml ? message : message.replace(/\n/g, '<br>');
@@ -156,6 +240,7 @@ async function processMessageQueue() {
 
 			case 'say_error': {
 				console.log(`[SAY ERROR] ${message}`);
+				addToGameLog('console_output', `[ERROR] ${message}`);
 				const html = `<span style="color: red;">${message}\n\n</span>`;
 				term.echo(html, {raw: true, keepWords: true});
 				term.echo('')
@@ -242,6 +327,7 @@ async function processMessageQueue() {
 			case 'npc_reply': {
 				const npcTitle = data.npc_title || data.npc_name || 'NPC';
 				console.log(`[NPC REPLY] ${npcTitle}: ${message}`);
+				addToGameLog('console_output', `[${npcTitle}] ${message}`);
 				const html = `<span style="color: white;"><b>[${npcTitle}]</b> ${message}</span>`;
 				term.echo(html, {raw: true, keepWords: true});
 				term.echo('');
