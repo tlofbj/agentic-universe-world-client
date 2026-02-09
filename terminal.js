@@ -227,6 +227,7 @@ async function processMessageQueue() {
 			}
 
 			case 'narrate': {
+				if (!message) break;
 				console.log(`[NARRATE] ${message}`);
 				addToGameLog('console_output', message);
 				// Only convert \n to <br> for plain text (not HTML content)
