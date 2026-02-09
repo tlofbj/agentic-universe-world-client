@@ -192,6 +192,11 @@ async function processMessageQueue() {
 		console.log('%c[ACTION]', 'color: #00ff00; font-weight: bold', data.type, data);
 
 		switch (data.type) {
+			case 'debug_action':
+				// Backend action chain debug logging
+				console.log('%c[BACKEND ACTION]', 'color: #ff9900; font-weight: bold; background: #1a1a1a; padding: 2px 6px; border-radius: 3px', data.action?.type, data.action);
+				break;
+
 			case 'status':
 				console.log(`[STATUS] ${message}`);
 				break;
