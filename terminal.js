@@ -188,9 +188,6 @@ async function processMessageQueue() {
 		const data = messageQueue.shift();
 		const message = data.message;
 
-		// Debug: log all incoming actions
-		console.log('%c[ACTION]', 'color: #00ff00; font-weight: bold', data.type, data);
-
 		switch (data.type) {
 			case 'debug_action':
 				// Backend action chain debug logging
