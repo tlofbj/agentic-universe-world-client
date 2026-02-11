@@ -253,12 +253,31 @@ async function processMessageQueue() {
 				break;
 			}
 
-			case 'room_image':
+			case 'room_image': {
 				// Support both old format (image_path) and new format (room_image_url)
 				const imageUrl = message?.room_image_url || message?.image_path || message;
 				console.log(`[ROOM IMAGE]: ${imageUrl}`);
-				updateRoomImage(imageUrl);
+				if (imageUrl) {
+					// Wait for image to load before continuing (allows fade_in to happen after)
+					await new Promise((resolve) => {
+						const img = new Image();
+						img.onload = () => {
+							console.log(`[ROOM IMAGE]: Loaded successfully`);
+							updateRoomImage(imageUrl);
+							resolve();
+						};
+						img.onerror = () => {
+							console.log(`[ROOM IMAGE]: Failed to load`);
+							updateRoomImage(imageUrl); // Still try to display
+							resolve();
+						};
+						img.src = imageUrl;
+					});
+				} else {
+					updateRoomImage(imageUrl);
+				}
 				break;
+			}
 
 			case 'fade_out': {
 				const duration = data.seconds || 0.8;
