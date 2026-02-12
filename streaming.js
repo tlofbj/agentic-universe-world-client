@@ -73,11 +73,23 @@ function createStreamingController(term, setupGlossaryTooltips, options = {}) {
 			return
 		}
 		ensureStreamingLine()
-		flushPendingWords()
-		updateStreamingLine()
-		term.echo('')
-		setupGlossaryTooltips()
-		resetState()
+		
+		// Wait for all buffered words to be processed before flushing
+		const waitForBufferedProcessing = () => {
+			if (state.processingBuffered || state.pendingWords.length > 0) {
+				// Still processing, check again in a bit
+				setTimeout(waitForBufferedProcessing, 50)
+				return
+			}
+			// All words processed, now flush any remaining and finalize
+			flushPendingWords()
+			updateStreamingLine()
+			term.echo('')
+			setupGlossaryTooltips()
+			resetState()
+		}
+		
+		waitForBufferedProcessing()
 	}
 
 	return {
