@@ -84,7 +84,7 @@ function createStreamingController(term, setupGlossaryTooltips, options = {}) {
 			// All words processed, now flush any remaining and finalize
 			flushPendingWords()
 			updateStreamingLine()
-			term.echo('')
+			term.echo('')  // Add line break after streaming ends (like narrate)
 			setupGlossaryTooltips()
 			resetState()
 		}

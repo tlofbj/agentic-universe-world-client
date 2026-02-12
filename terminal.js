@@ -298,7 +298,7 @@ async function processMessageQueue() {
 				if (overlay.length) {
 					overlay.css('transition', `opacity ${duration}s ease-in-out`);
 					overlay.removeClass('active');
-					await new Promise(resolve => setTimeout(resolve, duration * 1000));
+					// Don't await — let the fade animation play while subsequent actions load
 				}
 				break;
 			}
