@@ -68,28 +68,32 @@ function createStreamingController(term, setupGlossaryTooltips, options = {}) {
 	}
 
 	const finalizeStreaming = () => {
-		if (!state.active && !state.initializationPending) {
-			resetState()
-			return
-		}
-		ensureStreamingLine()
-		
-		// Wait for all buffered words to be processed before flushing
-		const waitForBufferedProcessing = () => {
-			if (state.processingBuffered || state.pendingWords.length > 0) {
-				// Still processing, check again in a bit
-				setTimeout(waitForBufferedProcessing, 50)
+		return new Promise((resolve) => {
+			if (!state.active && !state.initializationPending) {
+				resetState()
+				resolve()
 				return
 			}
-			// All words processed, now flush any remaining and finalize
-			flushPendingWords()
-			updateStreamingLine()
-			term.echo('')  // Add line break after streaming ends (like narrate)
-			setupGlossaryTooltips()
-			resetState()
-		}
-		
-		waitForBufferedProcessing()
+			ensureStreamingLine()
+			
+			// Wait for all buffered words to be processed before flushing
+			const waitForBufferedProcessing = () => {
+				if (state.processingBuffered || state.pendingWords.length > 0) {
+					// Still processing, check again in a bit
+					setTimeout(waitForBufferedProcessing, 50)
+					return
+				}
+				// All words processed, now flush any remaining and finalize
+				flushPendingWords()
+				updateStreamingLine()
+				term.echo('')  // Add line break after streaming ends (like narrate)
+				setupGlossaryTooltips()
+				resetState()
+				resolve()
+			}
+			
+			waitForBufferedProcessing()
+		})
 	}
 
 	return {
@@ -124,26 +128,29 @@ function createStreamingController(term, setupGlossaryTooltips, options = {}) {
 
 		handleEnd() {
 			if (state.initializationPending) {
-				const checkInterval = setInterval(() => {
-					if (state.active && !state.initializationPending) {
-						clearInterval(checkInterval)
-						finalizeStreaming()
-					}
-				}, 50)
+				return new Promise((resolve) => {
+					const checkInterval = setInterval(() => {
+						if (state.active && !state.initializationPending) {
+							clearInterval(checkInterval)
+							finalizeStreaming().then(resolve)
+						}
+					}, 50)
 
-				setTimeout(() => {
-					clearInterval(checkInterval)
-					if (state.initializationPending) {
-						beginStreaming()
-					}
-					finalizeStreaming()
-				}, npcDelayMs)
-				return
+					setTimeout(() => {
+						clearInterval(checkInterval)
+						if (state.initializationPending) {
+							beginStreaming()
+						}
+						finalizeStreaming().then(resolve)
+					}, npcDelayMs)
+				})
 			}
 
 			if (state.active) {
-				finalizeStreaming()
+				return finalizeStreaming()
 			}
+
+			return Promise.resolve()
 		}
 	}
 }

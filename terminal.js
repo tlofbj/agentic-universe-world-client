@@ -354,7 +354,7 @@ async function processMessageQueue() {
 			}
 
 			case 'say_stream_end': {
-				streamingController.handleEnd();
+				await streamingController.handleEnd();
 				break;
 			}
 
