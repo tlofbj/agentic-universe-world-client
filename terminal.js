@@ -15,6 +15,27 @@ const DEV_FORCE_FRESH_GAME = (() => {
 	if (query.has('fresh')) return query.get('fresh') !== '0'
 	return ['localhost', '127.0.0.1'].includes(window.location.hostname)
 })()
+const NO_SESSION_IN_DEV = DEV_FORCE_FRESH_GAME
+
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+function isSocketOpen() {
+	return socket && socket.readyState === WebSocket.OPEN
+}
+
+function sendSocketMessage(type, message) {
+	if (!isSocketOpen()) return false
+	socket.send(JSON.stringify({type, message}))
+	return true
+}
+
+function sendStartMessage() {
+	return sendSocketMessage('start', {world: worldData})
+}
+
+function sendResumeMessage(sessionId) {
+	return sendSocketMessage('resume', {session_id: sessionId})
+}
 
 function sessionStorageKey() {
 	const worldName = worldData?.name || 'default'
@@ -22,13 +43,13 @@ function sessionStorageKey() {
 }
 
 function loadStoredSessionId() {
-	if (DEV_FORCE_FRESH_GAME) return null
+	if (NO_SESSION_IN_DEV) return null
 	return sessionStorage.getItem(sessionStorageKey())
 }
 
 function saveSessionId(sessionId) {
 	currentSessionId = sessionId
-	if (DEV_FORCE_FRESH_GAME) return
+	if (NO_SESSION_IN_DEV) return
 	sessionStorage.setItem(sessionStorageKey(), sessionId)
 }
 
@@ -97,12 +118,12 @@ window.addEventListener('message', (event) => {
 	if (event.data.type === 'INIT_GAME') {
 		console.log('[INFO] Received INIT_GAME from parent')
 		worldData = event.data.world
-		if (DEV_FORCE_FRESH_GAME) {
+		if (NO_SESSION_IN_DEV) {
 			clearSessionId()
 		}
 		
 		// If socket is already connected, start the game
-		if (socket && socket.readyState === WebSocket.OPEN) {
+		if (isSocketOpen()) {
 			startWithWorld()
 		}
 		// Otherwise, the game will start when socket connects
@@ -111,7 +132,7 @@ window.addEventListener('message', (event) => {
 
 // INTERPRETER
 function interpreter(command, term) {
-	if (!socket || socket.readyState !== WebSocket.OPEN) {
+	if (!isSocketOpen()) {
 		console.log('[INFO] Message received but WebSocket is not open, reconnecting...')
 		connectSocket()
 		return
@@ -127,10 +148,7 @@ function interpreter(command, term) {
 	// Log player input
 	addToGameLog('player_message', trimmed)
 	
-	socket.send(JSON.stringify({
-		type: 'player_input',
-		message: trimmed
-	}))
+	sendSocketMessage('player_input', trimmed)
 	term.echo('')
 }
 
@@ -146,12 +164,7 @@ function startFreshGame() {
 	updateRoomImage(null)
 	term.echo('<span style="color: #888;">Starting a fresh game...</span>', {raw: true})
 	term.echo('')
-	socket.send(JSON.stringify({
-		type: 'start',
-		message: {
-			world: worldData
-		}
-	}))
+	sendStartMessage()
 }
 
 function startWithWorld() {
@@ -161,25 +174,15 @@ function startWithWorld() {
 		return
 	}
 	
-	if (socket && socket.readyState === WebSocket.OPEN) {
+	if (isSocketOpen()) {
 		const storedSessionId = currentSessionId || loadStoredSessionId()
-		if (!DEV_FORCE_FRESH_GAME && storedSessionId) {
+		if (!NO_SESSION_IN_DEV && storedSessionId) {
 			console.log(`[INFO] Attempting to resume session ${storedSessionId}`)
-			socket.send(JSON.stringify({
-				type: 'resume',
-				message: {
-					session_id: storedSessionId
-				}
-			}))
+			sendResumeMessage(storedSessionId)
 			return
 		}
 		console.log('[INFO] Starting fresh game with world data')
-		socket.send(JSON.stringify({
-			type: 'start',
-			message: {
-				world: worldData
-			}
-		}))
+		sendStartMessage()
 	} else {
 		console.log('[INFO] Socket not ready, will start when connected')
 	}
@@ -269,15 +272,10 @@ async function processMessageQueue() {
 			case 'session_resume_failed':
 				console.log(`[SESSION] Resume failed: ${message || ''}`)
 				clearSessionId()
-				if (!didResumeFallback && socket && socket.readyState === WebSocket.OPEN) {
+				if (!didResumeFallback && isSocketOpen()) {
 					didResumeFallback = true
 					console.log('[SESSION] Falling back to fresh start')
-					socket.send(JSON.stringify({
-						type: 'start',
-						message: {
-							world: worldData
-						}
-					}))
+					sendStartMessage()
 				}
 				break
 
@@ -332,7 +330,7 @@ async function processMessageQueue() {
 			case 'wait': {
 				const seconds = data.seconds || 1;
 				console.log(`[WAIT] ${seconds}s`);
-				await new Promise(resolve => setTimeout(resolve, seconds * 1000));
+				await wait(seconds * 1000)
 				break;
 			}
 
@@ -391,7 +389,7 @@ async function processMessageQueue() {
 				if (overlay.length) {
 					overlay.css('transition', `opacity ${duration}s ease-in-out`);
 					overlay.addClass('active');
-					await new Promise(resolve => setTimeout(resolve, duration * 1000));
+					await wait(duration * 1000)
 				}
 				break;
 			}

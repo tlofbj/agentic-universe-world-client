@@ -10,6 +10,7 @@ const createStreamingState = () => ({
 
 function createStreamingController(term, options = {}) {
 	const npcDelayMs = options.npcDelayMs ?? 1000
+	const wordDelayMs = options.wordDelayMs ?? 50
 	let state = createStreamingState()
 
 	const resetState = () => {
@@ -62,7 +63,7 @@ function createStreamingController(term, options = {}) {
 			}
 			state.content += state.pendingWords.shift()
 			updateStreamingLine()
-			setTimeout(processNextWord, 50)
+			setTimeout(processNextWord, wordDelayMs)
 		}
 		processNextWord()
 	}
@@ -80,7 +81,7 @@ function createStreamingController(term, options = {}) {
 			const waitForBufferedProcessing = () => {
 				if (state.processingBuffered || state.pendingWords.length > 0) {
 					// Still processing, check again in a bit
-					setTimeout(waitForBufferedProcessing, 50)
+					setTimeout(waitForBufferedProcessing, wordDelayMs)
 					return
 				}
 				// All words processed, now flush any remaining and finalize
@@ -133,7 +134,7 @@ function createStreamingController(term, options = {}) {
 							clearInterval(checkInterval)
 							finalizeStreaming().then(resolve)
 						}
-					}, 50)
+					}, wordDelayMs)
 
 					setTimeout(() => {
 						clearInterval(checkInterval)
