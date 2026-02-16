@@ -123,7 +123,7 @@ function scheduleGenerationIndicator() {
 		if (generationIndicatorRequested) {
 			startGenerationIndicator()
 		}
-	}, 2000)
+	}, 3000)
 }
 
 function cancelGenerationIndicator() {
