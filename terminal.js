@@ -9,6 +9,9 @@ let currentSessionId = null
 let reconnecting = false
 let didResumeFallback = false
 let streamLogBuffer = ''
+let generationIndicatorInterval = null
+let generationIndicatorLineIndex = null
+let generationIndicatorStep = 0
 
 const DEV_FORCE_FRESH_GAME = (() => {
 	const query = new URLSearchParams(window.location.search)
@@ -18,6 +21,14 @@ const DEV_FORCE_FRESH_GAME = (() => {
 const NO_SESSION_IN_DEV = DEV_FORCE_FRESH_GAME
 
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+const generationResultTypes = new Set([
+	'narrate',
+	'npc_reply',
+	'say_error',
+	'error',
+	'say_stream_start',
+	'game_end'
+])
 
 function isSocketOpen() {
 	return socket && socket.readyState === WebSocket.OPEN
@@ -58,7 +69,48 @@ function clearSessionId() {
 	sessionStorage.removeItem(sessionStorageKey())
 }
 
+function updateGenerationIndicatorLine() {
+	if (generationIndicatorLineIndex === null) return
+	const output = term.find('.terminal-output')
+	const lines = output.children('div')
+	const line = lines[generationIndicatorLineIndex]
+	if (!line) return
+	const dotCount = (generationIndicatorStep % 3) + 1
+	const dots = '.'.repeat(dotCount)
+	$(line).html(`<span style="color: #888;">${dots}</span>`)
+	generationIndicatorStep += 1
+}
+
+function startGenerationIndicator() {
+	stopGenerationIndicator()
+	term.echo('', {raw: true})
+	const output = term.find('.terminal-output')
+	const lines = output.children('div')
+	generationIndicatorLineIndex = lines.length - 1
+	generationIndicatorStep = 0
+	updateGenerationIndicatorLine()
+	generationIndicatorInterval = setInterval(updateGenerationIndicatorLine, 350)
+}
+
+function stopGenerationIndicator() {
+	if (generationIndicatorInterval) {
+		clearInterval(generationIndicatorInterval)
+		generationIndicatorInterval = null
+	}
+	if (generationIndicatorLineIndex !== null) {
+		const output = term.find('.terminal-output')
+		const lines = output.children('div')
+		const line = lines[generationIndicatorLineIndex]
+		if (line) {
+			$(line).remove()
+		}
+		generationIndicatorLineIndex = null
+	}
+	generationIndicatorStep = 0
+}
+
 function resetClientGameState() {
+	stopGenerationIndicator()
 	gameLog = []
 	currentGameState = {
 		currentRoom: null,
@@ -149,6 +201,7 @@ function interpreter(command, term) {
 	addToGameLog('player_message', trimmed)
 	
 	sendSocketMessage('player_input', trimmed)
+	startGenerationIndicator()
 	term.echo('')
 }
 
@@ -239,12 +292,14 @@ function connectSocket() {
 
 	socket.onclose = () => {
 		console.log('[INFO] WebSocket connection lost');
+		stopGenerationIndicator()
 		reconnecting = true
 		connectSocket();
 	};
 
 	socket.onerror = () => {
 		console.log('[ERROR] WebSocket error');
+		stopGenerationIndicator()
 	};
 
 	return socket;
@@ -257,6 +312,9 @@ async function processMessageQueue() {
 	while (messageQueue.length > 0) {
 		const data = messageQueue.shift();
 		const message = data.message;
+		if (generationResultTypes.has(data.type)) {
+			stopGenerationIndicator()
+		}
 
 		switch (data.type) {
 			case 'session_started':
