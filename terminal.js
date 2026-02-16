@@ -4,6 +4,48 @@ let streamingController
 let messageQueue = []
 let isProcessingQueue = false
 let worldData = null // Store world data received from parent
+let socket = null
+let currentSessionId = null
+let reconnecting = false
+let didResumeFallback = false
+
+const DEV_FORCE_FRESH_GAME = (() => {
+	const query = new URLSearchParams(window.location.search)
+	if (query.has('fresh')) return query.get('fresh') !== '0'
+	return ['localhost', '127.0.0.1'].includes(window.location.hostname)
+})()
+
+function sessionStorageKey() {
+	const worldName = worldData?.name || 'default'
+	return `reason-os-session-id:${worldName}`
+}
+
+function loadStoredSessionId() {
+	if (DEV_FORCE_FRESH_GAME) return null
+	return sessionStorage.getItem(sessionStorageKey())
+}
+
+function saveSessionId(sessionId) {
+	currentSessionId = sessionId
+	if (DEV_FORCE_FRESH_GAME) return
+	sessionStorage.setItem(sessionStorageKey(), sessionId)
+}
+
+function clearSessionId() {
+	currentSessionId = null
+	sessionStorage.removeItem(sessionStorageKey())
+}
+
+function resetClientGameState() {
+	gameLog = []
+	currentGameState = {
+		currentRoom: null,
+		currentChapter: null,
+		playerInventory: [],
+		playerFlags: []
+	}
+	sendGameLogToParent()
+}
 
 // Game log for parent iframe communication
 let gameLog = []
@@ -61,6 +103,9 @@ window.addEventListener('message', (event) => {
 	if (event.data.type === 'INIT_GAME') {
 		console.log('[INFO] Received INIT_GAME from parent')
 		worldData = event.data.world
+		if (DEV_FORCE_FRESH_GAME) {
+			clearSessionId()
+		}
 		
 		// If socket is already connected, start the game
 		if (socket && socket.readyState === WebSocket.OPEN) {
@@ -77,16 +122,11 @@ function interpreter(command, term) {
 		connectSocket()
 		return
 	}
-	trimmed = command.trim()
+	const trimmed = command.trim()
 	if (trimmed === '') return
-	
-	// Clear previous echo if command ≤ 3 chars
-	if (trimmed.length <= 3 && !trimmed.startsWith('/') && !['yes', 'no', 'ok', 'idk', 'y', 'n', '?'].includes(trimmed.toLowerCase())) {
-		const output = term.find('.terminal-output')
-		const lines = output.children('div')
-		if (lines.length > 0) {
-			$(lines[lines.length - 1]).remove()
-		}
+
+	if (trimmed.toLowerCase() === '/new') {
+		startFreshGame()
 		return
 	}
 	
@@ -100,6 +140,26 @@ function interpreter(command, term) {
 	term.echo('')
 }
 
+function startFreshGame() {
+	if (!worldData) {
+		showWorldDataError()
+		return
+	}
+	clearSessionId()
+	didResumeFallback = false
+	resetClientGameState()
+	term.clear()
+	updateRoomImage(null)
+	term.echo('<span style="color: #888;">Starting a fresh game...</span>', {raw: true})
+	term.echo('')
+	socket.send(JSON.stringify({
+		type: 'start',
+		message: {
+			world: worldData
+		}
+	}))
+}
+
 function startWithWorld() {
 	if (!worldData) {
 		console.log('[ERROR] No world data available')
@@ -108,11 +168,21 @@ function startWithWorld() {
 	}
 	
 	if (socket && socket.readyState === WebSocket.OPEN) {
-		console.log('[INFO] Starting game with world data')
+		const storedSessionId = currentSessionId || loadStoredSessionId()
+		if (!DEV_FORCE_FRESH_GAME && storedSessionId) {
+			console.log(`[INFO] Attempting to resume session ${storedSessionId}`)
+			socket.send(JSON.stringify({
+				type: 'resume',
+				message: {
+					session_id: storedSessionId
+				}
+			}))
+			return
+		}
+		console.log('[INFO] Starting fresh game with world data')
 		socket.send(JSON.stringify({
 			type: 'start',
-			message: { 
-				state: localStorage.getItem('reason-os-game-state'),
+			message: {
 				world: worldData
 			}
 		}))
@@ -147,11 +217,13 @@ function connectSocket() {
 	}
 
 	socket.onopen = () => {
-		console.clear();
-		console.log('[INFO] WebSocket connected');
-		if (term) {
+		console.clear()
+		console.log('[INFO] WebSocket connected')
+		if (term && !reconnecting) {
 			term.clear();
 		}
+		reconnecting = false
+		didResumeFallback = false
 		// Only start if we already have world data from parent
 		if (worldData) {
 			startWithWorld();
@@ -170,6 +242,7 @@ function connectSocket() {
 
 	socket.onclose = () => {
 		console.log('[INFO] WebSocket connection lost');
+		reconnecting = true
 		connectSocket();
 	};
 
@@ -189,6 +262,31 @@ async function processMessageQueue() {
 		const message = data.message;
 
 		switch (data.type) {
+			case 'session_started':
+				console.log(`[SESSION] Started: ${data.session_id}`)
+				if (data.session_id) saveSessionId(data.session_id)
+				break
+
+			case 'session_resumed':
+				console.log(`[SESSION] Resumed: ${data.session_id}`)
+				if (data.session_id) saveSessionId(data.session_id)
+				break
+
+			case 'session_resume_failed':
+				console.log(`[SESSION] Resume failed: ${message || ''}`)
+				clearSessionId()
+				if (!didResumeFallback && socket && socket.readyState === WebSocket.OPEN) {
+					didResumeFallback = true
+					console.log('[SESSION] Falling back to fresh start')
+					socket.send(JSON.stringify({
+						type: 'start',
+						message: {
+							world: worldData
+						}
+					}))
+				}
+				break
+
 			case 'debug_action':
 				// Backend action chain debug logging
 				console.log('%c[BACKEND ACTION]', 'color: #ff9900; font-weight: bold; background: #1a1a1a; padding: 2px 6px; border-radius: 3px', data.action?.type, data.action);
