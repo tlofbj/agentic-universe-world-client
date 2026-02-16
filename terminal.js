@@ -12,6 +12,8 @@ let streamLogBuffer = ''
 let generationIndicatorInterval = null
 let generationIndicatorLineIndex = null
 let generationIndicatorStep = 0
+let generationIndicatorDelayTimeout = null
+let generationIndicatorRequested = false
 
 const DEV_FORCE_FRESH_GAME = (() => {
 	const query = new URLSearchParams(window.location.search)
@@ -109,8 +111,30 @@ function stopGenerationIndicator() {
 	generationIndicatorStep = 0
 }
 
-function resetClientGameState() {
+function scheduleGenerationIndicator() {
+	generationIndicatorRequested = true
+	if (generationIndicatorDelayTimeout) {
+		clearTimeout(generationIndicatorDelayTimeout)
+	}
+	generationIndicatorDelayTimeout = setTimeout(() => {
+		generationIndicatorDelayTimeout = null
+		if (generationIndicatorRequested) {
+			startGenerationIndicator()
+		}
+	}, 1500)
+}
+
+function cancelGenerationIndicator() {
+	generationIndicatorRequested = false
+	if (generationIndicatorDelayTimeout) {
+		clearTimeout(generationIndicatorDelayTimeout)
+		generationIndicatorDelayTimeout = null
+	}
 	stopGenerationIndicator()
+}
+
+function resetClientGameState() {
+	cancelGenerationIndicator()
 	gameLog = []
 	currentGameState = {
 		currentRoom: null,
@@ -201,7 +225,7 @@ function interpreter(command, term) {
 	addToGameLog('player_message', trimmed)
 	
 	sendSocketMessage('player_input', trimmed)
-	startGenerationIndicator()
+	scheduleGenerationIndicator()
 	term.echo('')
 }
 
@@ -292,14 +316,14 @@ function connectSocket() {
 
 	socket.onclose = () => {
 		console.log('[INFO] WebSocket connection lost');
-		stopGenerationIndicator()
+		cancelGenerationIndicator()
 		reconnecting = true
 		connectSocket();
 	};
 
 	socket.onerror = () => {
 		console.log('[ERROR] WebSocket error');
-		stopGenerationIndicator()
+		cancelGenerationIndicator()
 	};
 
 	return socket;
@@ -313,7 +337,7 @@ async function processMessageQueue() {
 		const data = messageQueue.shift();
 		const message = data.message;
 		if (generationResultTypes.has(data.type)) {
-			stopGenerationIndicator()
+			cancelGenerationIndicator()
 		}
 
 		switch (data.type) {
