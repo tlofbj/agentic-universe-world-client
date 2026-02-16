@@ -368,16 +368,6 @@ async function processMessageQueue() {
 				console.log('%c[BACKEND ACTION]', 'color: #ff9900; font-weight: bold; background: #1a1a1a; padding: 2px 6px; border-radius: 3px', data.action?.type, data.action);
 				break;
 
-			case 'debug_llm_response':
-				// Raw LLM output debug logging
-				console.groupCollapsed(`%c[LLM RESPONSE] ${data.source} %c${data.model || ''}`, 'color: #00ccff; font-weight: bold; background: #1a1a1a; padding: 2px 6px; border-radius: 3px', 'color: #888; font-weight: normal');
-				console.log('%cModel:', 'color: #aaa; font-weight: bold', data.model);
-				console.log('%cThinking:', 'color: #aaa; font-weight: bold', data.response?.thinking);
-				console.log('%cImportance:', 'color: #aaa; font-weight: bold', data.response?.importance);
-				console.log('%cActions:', 'color: #aaa; font-weight: bold', data.response?.actions);
-				console.groupEnd();
-				break;
-
 			case 'status':
 				console.log(`[STATUS] ${message}`);
 				break;
