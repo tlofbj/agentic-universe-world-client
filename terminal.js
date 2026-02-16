@@ -112,6 +112,8 @@ function stopGenerationIndicator() {
 }
 
 function scheduleGenerationIndicator() {
+	// Ensure stale indicator from a previous request never carries over.
+	cancelGenerationIndicator()
 	generationIndicatorRequested = true
 	if (generationIndicatorDelayTimeout) {
 		clearTimeout(generationIndicatorDelayTimeout)
