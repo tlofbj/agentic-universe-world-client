@@ -8,7 +8,7 @@ const createStreamingState = () => ({
 	processingBuffered: false
 })
 
-function createStreamingController(term, setupGlossaryTooltips, options = {}) {
+function createStreamingController(term, options = {}) {
 	const npcDelayMs = options.npcDelayMs ?? 1000
 	let state = createStreamingState()
 
@@ -87,7 +87,6 @@ function createStreamingController(term, setupGlossaryTooltips, options = {}) {
 				flushPendingWords()
 				updateStreamingLine()
 				term.echo('')  // Add line break after streaming ends (like narrate)
-				setupGlossaryTooltips()
 				resetState()
 				resolve()
 			}

@@ -8,6 +8,7 @@ let socket = null
 let currentSessionId = null
 let reconnecting = false
 let didResumeFallback = false
+let streamLogBuffer = ''
 
 const DEV_FORCE_FRESH_GAME = (() => {
 	const query = new URLSearchParams(window.location.search)
@@ -40,9 +41,7 @@ function resetClientGameState() {
 	gameLog = []
 	currentGameState = {
 		currentRoom: null,
-		currentChapter: null,
-		playerInventory: [],
-		playerFlags: []
+		currentChapter: null
 	}
 	sendGameLogToParent()
 }
@@ -51,9 +50,7 @@ function resetClientGameState() {
 let gameLog = []
 let currentGameState = {
 	currentRoom: null,
-	currentChapter: null,
-	playerInventory: [],
-	playerFlags: []
+	currentChapter: null
 }
 
 // Add entry to game log
@@ -63,6 +60,7 @@ function addToGameLog(type, data) {
 		type: type,
 		data: data
 	})
+	sendGameLogToParent()
 }
 
 // Send game log to parent iframe
@@ -70,7 +68,6 @@ function sendGameLogToParent() {
 	window.parent.postMessage({
 		type: 'GAME_LOG',
 		log: {
-			...currentGameState,
 			entries: gameLog
 		}
 	}, '*')
@@ -93,13 +90,10 @@ let term = $('#terminal').terminal(interpreter, {
 	onInit: connectSocket,
 }).click()
 
-streamingController = createStreamingController(term, setupGlossaryTooltips)
+streamingController = createStreamingController(term)
 
 // Listen for messages from parent window (iframe communication)
 window.addEventListener('message', (event) => {
-	// Optionally validate event.origin for security
-	// if (event.origin !== 'https://your-platform.com') return
-
 	if (event.data.type === 'INIT_GAME') {
 		console.log('[INFO] Received INIT_GAME from parent')
 		worldData = event.data.world
@@ -312,23 +306,26 @@ async function processMessageQueue() {
 				break;
 			
 			case 'game_state':
-				// Update current game state from backend
 				console.log('[GAME STATE] Received state update');
 				if (data.state) {
+					const nextRoom = data.state.current_room ?? null;
+					const nextChapter = data.state.current_chapter ?? null;
+					if (nextChapter !== currentGameState.currentChapter) {
+						addToGameLog('chapter_change', nextChapter);
+					}
+					if (nextRoom !== currentGameState.currentRoom) {
+						addToGameLog('scene_change', nextRoom);
+					}
 					currentGameState = {
-						currentRoom: data.state.current_room || currentGameState.currentRoom,
-						currentChapter: data.state.current_chapter || currentGameState.currentChapter,
-						playerInventory: data.state.inventory || currentGameState.playerInventory,
-						playerFlags: data.state.flags || currentGameState.playerFlags
+						currentRoom: nextRoom,
+						currentChapter: nextChapter
 					};
-					sendGameLogToParent();
 				}
 				break;
 
 			case 'game_end':
 				console.log('[GAME END] Game has ended');
 				addToGameLog('console_output', '[GAME END]');
-				sendGameLogToParent();
 				sendEndToParent();
 				break;
 
@@ -442,17 +439,23 @@ async function processMessageQueue() {
 
 			case 'say_stream_start': {
 				console.log(`[SAY STREAM START] ${message.prefix || ''}`);
+				streamLogBuffer = message?.prefix || '';
 				streamingController.handleStart(message);
 				break;
 			}
 
 			case 'say_stream_word': {
+				streamLogBuffer += message || '';
 				streamingController.handleWord(message);
 				break;
 			}
 
 			case 'say_stream_end': {
 				await streamingController.handleEnd();
+				if (streamLogBuffer.trim()) {
+					addToGameLog('console_output', streamLogBuffer);
+				}
+				streamLogBuffer = '';
 				break;
 			}
 
@@ -473,74 +476,6 @@ async function processMessageQueue() {
 	}
 
 	isProcessingQueue = false;
-}
-
-// GLOSSARY TOOLTIP HANDLING
-function setupGlossaryTooltips() {
-	// Remove existing tooltip handlers to avoid duplicates
-	$(document).off('mouseenter mouseleave', '.glossary-word');
-	$(document).off('mousemove.glossary');
-	
-	// Setup tooltip that follows mouse cursor and preserves existing styles
-	$(document).on('mouseenter', '.glossary-word', function(e) {
-		const definition = $(this).attr('data-definition');
-		if (!definition) return;
-		
-		const wordElement = this;
-		const computedStyle = window.getComputedStyle(wordElement);
-		
-		const tooltip = $('<div class="glossary-tooltip"></div>')
-			.text(definition)
-			.css({
-				// color: computedStyle.color,
-				fontFamily: computedStyle.fontFamily,
-				// fontSize: computedStyle.fontSize,
-				// lineHeight: computedStyle.lineHeight,
-				// display: 'none'
-			})
-			.appendTo('body');
-		
-		// Position tooltip at mouse cursor with offset
-		const updatePosition = (event) => {
-			const offsetX = 10;
-			const offsetY = +10;
-			let left = event.pageX + offsetX;
-			let top = event.pageY + offsetY;
-			
-			// Keep tooltip within viewport
-			const tooltipWidth = tooltip.outerWidth();
-			const tooltipHeight = tooltip.outerHeight();
-			const viewportWidth = $(window).width();
-			const viewportHeight = $(window).height();
-			
-			if (left + tooltipWidth > viewportWidth - 10) {
-				left = event.pageX - tooltipWidth - offsetX;
-			}
-			if (top + tooltipHeight > viewportHeight - 10) {
-				top = event.pageY - tooltipHeight - offsetY;
-			}
-			if (left < 10) left = 10;
-			if (top < 10) top = 10;
-			
-			tooltip.css({ left: left + 'px', top: top + 'px' }).show();
-		};
-		
-		// Update position on mouse move
-		$(document).on('mousemove.glossary', updatePosition);
-		updatePosition(e);
-		
-		// Store reference for cleanup
-		$(this).data('tooltip', tooltip);
-	});
-	
-	$(document).on('mouseleave', '.glossary-word', function() {
-		const tooltip = $(this).data('tooltip');
-		if (tooltip) {
-			tooltip.remove();
-			$(this).removeData('tooltip');
-		}
-		$(document).off('mousemove.glossary');
-	});
 }
 
 // ROOM IMAGE HANDLING
