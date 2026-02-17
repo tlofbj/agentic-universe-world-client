@@ -28,6 +28,7 @@ const generationResultTypes = new Set([
 	'npc_reply',
 	'say_error',
 	'error',
+	'llm_debug',
 	'say_stream_start',
 	'game_end'
 ])
@@ -366,6 +367,10 @@ async function processMessageQueue() {
 			case 'debug_action':
 				// Backend action chain debug logging
 				console.log('%c[BACKEND ACTION]', 'color: #ff9900; font-weight: bold; background: #1a1a1a; padding: 2px 6px; border-radius: 3px', data.action?.type, data.action);
+				break;
+
+			case 'llm_debug':
+				console.log('%c[LLM OUTPUT]', 'color: #4da3ff; font-weight: bold;', message);
 				break;
 
 			case 'status':
